@@ -6,15 +6,17 @@ use wayrs_utils::shm_alloc::BufferSpec;
 use crate::blocks_cache::ComputedBlock;
 use crate::button_manager::ButtonManager;
 use crate::color::Color;
-use crate::config::{Config, Position};
+use crate::config::{Config, Position, TrayPosition};
 use crate::i3bar_protocol;
 use crate::output::Output;
 use crate::pointer_btn::PointerBtn;
 use crate::protocol::*;
-use crate::shared_state::SharedState;
+use crate::shared_state::{SharedState, TrayAction};
 use crate::state::State;
 use crate::text::{self, ComputedText, RenderOptions};
 use crate::wm_info_provider::Tag;
+
+use libtrayd::{ItemId, TrayItem};
 
 pub struct Bar {
     pub output: Output,
@@ -30,6 +32,7 @@ pub struct Bar {
     viewport: WpViewport,
     fractional_scale: Option<WpFractionalScaleV1>,
     blocks_btns: ButtonManager<(Option<String>, Option<String>)>,
+    tray_btns: ButtonManager<String>,
     tags: Vec<Tag>,
     layout_name: Option<String>,
     mode_name: Option<String>,
@@ -76,6 +79,7 @@ impl Bar {
             fractional_scale,
             layer_surface,
             blocks_btns: Default::default(),
+            tray_btns: Default::default(),
             tags: Vec::new(),
             layout_name: None,
             mode_name: None,
@@ -127,6 +131,16 @@ impl Bar {
         } else if self.tags_btns.is_between(x) {
             ss.wm_info_provider
                 .click_on_tag(conn, &self.output, seat, None, button);
+        } else if let Some(app_id) = self.tray_btns.click(x) {
+            use libtrayd::ItemId;
+            ss.pending_tray_action = Some((
+                ItemId(app_id.clone()),
+                match button {
+                    PointerBtn::Left => TrayAction::Activate,
+                    PointerBtn::Right => TrayAction::ShowMenu,
+                    _ => return Ok(()),
+                },
+            ));
         } else if let Some((name, instance)) = self.blocks_btns.click(x) {
             if let Some(cmd) = &mut ss.status_cmd {
                 cmd.send_click_event(&i3bar_protocol::Event {
@@ -319,6 +333,36 @@ impl Bar {
             }
         }
 
+        // Compute tray dimensions
+        let has_tray = ss.tray_host.is_some() && !ss.tray_items.is_empty();
+        let tray_width = if has_tray {
+            let count = ss.tray_items.len() as f64;
+            let icon_size = (height_f - 4.0).max(16.0);
+            let pad = 4.0;
+            count * icon_size + (count - 1.0) * pad
+        } else {
+            0.0
+        };
+
+        let blocks_width = if ss.config.tray_position == TrayPosition::Right {
+            width_f - tray_width
+        } else {
+            width_f
+        };
+
+        // Render tray icons on the left (after mode)
+        if has_tray && ss.config.tray_position == TrayPosition::Left {
+            render_tray_icons(
+                &cairo_ctx,
+                ss.tray_host.as_ref().unwrap(),
+                &ss.tray_items,
+                &mut self.tray_btns,
+                offset_left,
+                height_f,
+            );
+            // No need to update offset_left – blocks are right-aligned anyway
+        }
+
         // Display the blocks
         render_blocks(
             &cairo_ctx,
@@ -326,9 +370,21 @@ impl Bar {
             ss.blocks_cache.get_computed(),
             &mut self.blocks_btns,
             offset_left,
-            width_f,
+            blocks_width,
             height_f,
         );
+
+        // Render tray icons on the far right
+        if has_tray && ss.config.tray_position == TrayPosition::Right {
+            render_tray_icons(
+                &cairo_ctx,
+                ss.tray_host.as_ref().unwrap(),
+                &ss.tray_items,
+                &mut self.tray_btns,
+                width_f - tray_width,
+                height_f,
+            );
+        }
 
         self.viewport
             .set_destination(conn, self.width as i32, self.height as i32);
@@ -574,6 +630,161 @@ fn layer_surface_cb(ctx: EventCtx<State, ZwlrLayerSurfaceV1>) {
         }
         _ => (),
     }
+}
+
+/// Render tray icons on the far right of the bar.
+fn render_tray_icons(
+    context: &cairo::Context,
+    _host: &libtrayd::TrayHost,
+    items: &std::collections::HashMap<ItemId, TrayItem>,
+    btns: &mut ButtonManager<String>,
+    start_x: f64,
+    full_height: f64,
+) {
+    btns.clear();
+
+    // Collect items in a deterministic order (by id)
+    let mut ordered: Vec<&TrayItem> = items.values().collect();
+    ordered.sort_by(|a, b| a.id.0.cmp(&b.id.0));
+    if ordered.is_empty() {
+        return;
+    }
+
+    let icon_size = (full_height - 4.0).max(16.0);
+    let pad = 4.0;
+    let mut x = start_x;
+    let y = (full_height - icon_size) / 2.0;
+
+    let target = icon_size as u32;
+    for item in &ordered {
+        let item_id = item.id.0.clone();
+
+        let (mut buf, iw, ih) = match resolve_item_icon(item, target) {
+            Some(r) => r,
+            None => {
+                // Skip items without icon data
+                x += icon_size + pad;
+                continue;
+            }
+        };
+
+        let stride = (iw * 4) as i32;
+        let surf = unsafe {
+            match cairo::ImageSurface::create_for_data_unsafe(
+                buf.as_mut_ptr(),
+                cairo::Format::ARgb32,
+                iw as i32,
+                ih as i32,
+                stride,
+            ) {
+                Ok(s) => s,
+                Err(_) => {
+                    x += icon_size + pad;
+                    continue;
+                }
+            }
+        };
+
+        context.save().unwrap();
+        // Scale icon to desired size
+        let scale_x = icon_size / iw as f64;
+        let scale_y = icon_size / ih as f64;
+        context.translate(x, y);
+        context.scale(scale_x, scale_y);
+        context.set_source_surface(&surf, 0.0, 0.0).unwrap();
+
+        if context.status().is_ok() {
+            context.paint().unwrap();
+        }
+        context.restore().unwrap();
+
+        drop(surf);
+        drop(buf); // explicit so it's freed before the next iteration
+        // but actually buf is dropped here anyway since it's local to the iteration
+        // the `drop(surf)` above ensures surf doesn't reference buf any more
+
+        btns.push(x, icon_size, item_id);
+        x += icon_size + pad;
+    }
+}
+
+/// Resolve a [`TrayItem`]'s icon to a native‑endian ARGB32 pixel buffer.
+///
+/// Returns `(buffer, width, height)` where `buffer` is in Cairo `ARgb32` format
+/// (on little‑endian: `[B, G, R, A]` per pixel).
+fn resolve_item_icon(item: &TrayItem, target: u32) -> Option<(Vec<u8>, u32, u32)> {
+    // 1. Try raw pixmaps – pick the one closest to target size
+    if !item.icon.pixmaps.is_empty() {
+        let best = item.icon.pixmaps.iter().min_by_key(|p| {
+            let dx = (p.width as u32).abs_diff(target);
+            let dy = (p.height as u32).abs_diff(target);
+            dx + dy
+        })?;
+
+        let w = best.width as u32;
+        let h = best.height as u32;
+        let mut buf = best.data.clone();
+
+        // Convert big‑endian ARGB → native ARGB32 (Cairo format on LE = [B,G,R,A])
+        for pixel in buf.chunks_exact_mut(4) {
+            // big‑endian: [A, R, G, B]
+            let a = pixel[0];
+            let r = pixel[1];
+            let g = pixel[2];
+            let b = pixel[3];
+            // native LE Cairo ARgb32: [B, G, R, A]
+            pixel[0] = b;
+            pixel[1] = g;
+            pixel[2] = r;
+            pixel[3] = a;
+        }
+
+        return Some((buf, w, h));
+    }
+
+    // 2. Try icon name — could be a theme name or an absolute file path
+    if !item.icon.name.is_empty() {
+        // 2a. Absolute path → load directly
+        if item.icon.name.starts_with('/') {
+            return load_image_path(&item.icon.name, target);
+        }
+
+        // 2b. Freedesktop icon theme lookup
+        let target_u16: u16 = target.try_into().ok()?;
+        let path = freedesktop_icons::lookup(&item.icon.name)
+            .with_size(target_u16)
+            .with_cache()
+            .find()?;
+
+        return load_image_path(path.to_str()?, target);
+    }
+
+    None
+}
+
+/// Load an image file, scale to `target` px, and return as native‑endian
+/// Cairo ARgb32 pixel buffer `(buf, width, height)`.
+fn load_image_path(path: &str, target: u32) -> Option<(Vec<u8>, u32, u32)> {
+    let img = image::open(path).ok()?;
+    let rgba = img.to_rgba8();
+    let resized = if rgba.width() != target || rgba.height() != target {
+        image::imageops::resize(&rgba, target, target, image::imageops::FilterType::Lanczos3)
+    } else {
+        rgba
+    };
+
+    let w = resized.width();
+    let h = resized.height();
+    let mut buf = vec![0u8; (w * h * 4) as usize];
+    for (i, pixel) in resized.pixels().enumerate() {
+        let off = i * 4;
+        buf[off] = pixel[2]; // B
+        buf[off + 1] = pixel[1]; // G
+        buf[off + 2] = pixel[0]; // R
+        buf[off + 3] = pixel[3]; // A
+    }
+
+    Some((buf, w, h))
 }
 
 fn fractional_scale_cb(ctx: EventCtx<State, WpFractionalScaleV1>) {
