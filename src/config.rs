@@ -49,6 +49,7 @@ pub struct Config {
     pub blend: bool,
     pub show_mode: bool,
     pub start_hidden: bool,
+    pub tray_position: TrayPosition,
     // wm-specific
     pub wm: WmConfig,
     // overrides
@@ -95,6 +96,7 @@ impl Default for Config {
             blend: true,
             show_mode: true,
             start_hidden: false,
+            tray_position: TrayPosition::Right,
 
             wm: WmConfig {
                 river: RiverConfig { max_tag: 9 },
@@ -164,6 +166,19 @@ impl From<Position> for zwlr_layer_surface_v1::Anchor {
             Position::Top => Self::Top | Self::Left | Self::Right,
             Position::Bottom => Self::Bottom | Self::Left | Self::Right,
         }
+    }
+}
+
+#[derive(Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum TrayPosition {
+    Left,
+    Right,
+}
+
+impl Default for TrayPosition {
+    fn default() -> Self {
+        Self::Right
     }
 }
 
