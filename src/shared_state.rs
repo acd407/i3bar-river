@@ -1,4 +1,5 @@
 use std::any::Any;
+use std::collections::HashMap;
 
 use crate::{
     blocks_cache::BlocksCache,
@@ -7,7 +8,14 @@ use crate::{
     wm_info_provider::{self, WmInfoProvider},
 };
 
+use libtrayd::{ItemId, TrayHost, TrayItem};
 use wayrs_utils::shm_alloc::ShmAlloc;
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TrayAction {
+    Activate,
+    ShowMenu,
+}
 
 pub struct SharedState {
     pub shm: ShmAlloc,
@@ -15,6 +23,10 @@ pub struct SharedState {
     pub status_cmd: Option<StatusCmd>,
     pub blocks_cache: BlocksCache,
     pub wm_info_provider: Box<dyn WmInfoProvider>,
+    pub tray_host: Option<TrayHost>,
+    pub tray_handle: Option<tokio::runtime::Handle>,
+    pub tray_items: HashMap<ItemId, TrayItem>,
+    pub pending_tray_action: Option<(ItemId, TrayAction)>,
 }
 
 impl SharedState {

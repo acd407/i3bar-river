@@ -15,6 +15,8 @@ mod shared_state;
 mod state;
 mod status_cmd;
 mod text;
+mod tray_host;
+mod tray_menu;
 mod utils;
 mod wm_info_provider;
 
@@ -49,6 +51,11 @@ fn main() -> anyhow::Result<()> {
     let mut el = EventLoop::new();
     let mut state = State::new(&mut conn, &mut el, args.config.as_deref());
     conn.flush(IoMode::Blocking)?;
+
+    // Start SNI tray host (D‑Bus watcher).  Exits if another watcher exists.
+    if !tray_host::init(&mut state, &mut el) {
+        std::process::exit(0);
+    }
 
     el.add_on_idle(|ctx| {
         ctx.conn.flush(IoMode::Blocking)?;
