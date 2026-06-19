@@ -26,9 +26,11 @@ pub fn init(state: &mut State, el: &mut EventLoop) -> bool {
         }
     };
 
+    let handle = rt.handle().clone();
     let mut tray_rx = host.subscribe();
     state.shared_state.tray_host = Some(host);
-    state.shared_state.tray_handle = Some(rt.handle().clone());
+    state.shared_state.tray_runtime = Some(rt);
+    state.shared_state.tray_handle = Some(handle);
 
     el.add_on_idle(move |ctx| {
         // Process incoming tray events (add/update/remove)

@@ -133,14 +133,22 @@ impl Bar {
                 .click_on_tag(conn, &self.output, seat, None, button);
         } else if let Some(app_id) = self.tray_btns.click(x) {
             use libtrayd::ItemId;
-            ss.pending_tray_action = Some((
-                ItemId(app_id.clone()),
-                match button {
-                    PointerBtn::Left => TrayAction::Activate,
-                    PointerBtn::Right => TrayAction::ShowMenu,
-                    _ => return Ok(()),
-                },
-            ));
+            let id = ItemId(app_id.clone());
+            let item = ss.tray_items.get(&id);
+            let has_menu = item.is_some_and(|i| !i.menu_path.is_empty() && i.menu_path != "/");
+
+            let action = match button {
+                PointerBtn::Left => {
+                    if item.is_some_and(|i| i.item_is_menu) && has_menu {
+                        TrayAction::ShowMenu
+                    } else {
+                        TrayAction::Activate
+                    }
+                }
+                PointerBtn::Right if has_menu => TrayAction::ShowMenu,
+                _ => return Ok(()),
+            };
+            ss.pending_tray_action = Some((id, action));
         } else if let Some((name, instance)) = self.blocks_btns.click(x) {
             if let Some(cmd) = &mut ss.status_cmd {
                 cmd.send_click_event(&i3bar_protocol::Event {

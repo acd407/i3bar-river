@@ -24,6 +24,7 @@ pub struct SharedState {
     pub blocks_cache: BlocksCache,
     pub wm_info_provider: Box<dyn WmInfoProvider>,
     pub tray_host: Option<TrayHost>,
+    pub tray_runtime: Option<tokio::runtime::Runtime>,
     pub tray_handle: Option<tokio::runtime::Handle>,
     pub tray_items: HashMap<ItemId, TrayItem>,
     pub pending_tray_action: Option<(ItemId, TrayAction)>,

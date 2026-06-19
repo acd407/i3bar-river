@@ -105,6 +105,7 @@ impl State {
                 blocks_cache: BlocksCache::default(),
                 wm_info_provider,
                 tray_host: None,
+                tray_runtime: None,
                 tray_handle: None,
                 tray_items: std::collections::HashMap::new(),
                 pending_tray_action: None,
