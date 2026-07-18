@@ -1,6 +1,6 @@
 #![allow(clippy::collapsible_else_if)]
 
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
@@ -182,7 +182,11 @@ impl Ipc {
     fn exec(&self, cmd: &str) -> io::Result<()> {
         let mut sock = UnixStream::connect(&self.sock_path)?;
         sock.write_all(cmd.as_bytes())?;
+        sock.write_all(b"\n")?;
         sock.flush()?;
+        // Read the reply to prevent niri from getting a broken pipe error.
+        let mut buf = [0u8; 4096];
+        let _ = sock.read(&mut buf);
         Ok(())
     }
 
