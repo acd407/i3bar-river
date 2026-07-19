@@ -39,6 +39,8 @@ pub struct Config {
     pub tags_margin: f64,
     pub blocks_r: f64,
     pub blocks_overlap: f64,
+    // tray menu
+    pub menu_command: Option<String>,
     // misc
     pub position: Position,
     pub layer: Layer,
@@ -59,6 +61,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             command: None,
+            menu_command: None,
 
             // A kind of gruvbox theme
             background: Color::from_rgba_hex(0x282828ff),

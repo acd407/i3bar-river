@@ -20,7 +20,10 @@ wayrs-client = "1.0"
 wayrs-protocols = { version = "0.14", features = ["wlr-layer-shell-unstable-v1", "viewporter", "fractional-scale-v1"] }
 wayrs-utils = { version = "0.17", features = ["cursor", "shm_alloc", "seats"] }
 clap = { version = "4.3", default-features = false, features = ["derive", "std", "help", "usage"] }
+cairo-rs = { version = "0.20", default-features = false, features = ["png"] }
 libc = "0.2"
+rustsni = "0.2.2"
+freedesktop-icons = "0.4"
 
 [features]
 default = ["river", "niri", "hyprland"]

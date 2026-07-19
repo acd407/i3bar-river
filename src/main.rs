@@ -15,6 +15,7 @@ mod shared_state;
 mod state;
 mod status_cmd;
 mod text;
+mod tray;
 mod utils;
 mod wm_info_provider;
 
@@ -48,7 +49,14 @@ fn main() -> anyhow::Result<()> {
 
     let mut el = EventLoop::new();
     let mut state = State::new(&mut conn, &mut el, args.config.as_deref());
+
+    // Initialize tray host, drain initial discovery events, and register D-Bus fd.
+    let max_scale = state.max_bar_scale();
+    let tray_dirty = tray::init(&mut state.shared_state, max_scale, &mut el);
     conn.flush(IoMode::Blocking)?;
+    if tray_dirty {
+        state.draw_all(&mut conn);
+    }
 
     el.add_on_idle(|ctx| {
         ctx.conn.flush(IoMode::Blocking)?;

@@ -1,4 +1,5 @@
 use std::any::Any;
+use std::collections::HashMap;
 
 use crate::{
     blocks_cache::BlocksCache,
@@ -7,7 +8,14 @@ use crate::{
     wm_info_provider::{self, WmInfoProvider},
 };
 
+use rustsni::TrayHost;
 use wayrs_utils::shm_alloc::ShmAlloc;
+
+pub struct CachedIcon {
+    pub data: Vec<u8>,
+    pub w: u32,
+    pub h: u32,
+}
 
 pub struct SharedState {
     pub shm: ShmAlloc,
@@ -15,6 +23,8 @@ pub struct SharedState {
     pub status_cmd: Option<StatusCmd>,
     pub blocks_cache: BlocksCache,
     pub wm_info_provider: Box<dyn WmInfoProvider>,
+    pub tray: Option<TrayHost>,
+    pub tray_cache: HashMap<String, CachedIcon>,
 }
 
 impl SharedState {

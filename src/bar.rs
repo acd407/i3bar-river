@@ -14,6 +14,7 @@ use crate::protocol::*;
 use crate::shared_state::SharedState;
 use crate::state::State;
 use crate::text::{self, ComputedText, RenderOptions};
+use crate::tray;
 use crate::wm_info_provider::Tag;
 
 pub struct Bar {
@@ -34,6 +35,7 @@ pub struct Bar {
     layout_name: Option<String>,
     mode_name: Option<String>,
     tags_btns: ButtonManager<u32>,
+    tray_btns: ButtonManager<String>,
     tags_computed: Vec<(u32, ColorPair, ComputedText)>,
     layout_name_computed: Option<ComputedText>,
     mode_computed: Option<ComputedText>,
@@ -80,6 +82,7 @@ impl Bar {
             layout_name: None,
             mode_name: None,
             tags_btns: Default::default(),
+            tray_btns: Default::default(),
             tags_computed: Vec::new(),
             layout_name_computed: None,
             mode_computed: None,
@@ -94,6 +97,10 @@ impl Bar {
         }
         self.surface.destroy(conn);
         self.output.destroy(conn);
+    }
+
+    pub fn scale_f(&self) -> f64 {
+        self.scale120.map(|s| s as f64 / 120.0).unwrap_or(self.output.scale as f64)
     }
 
     pub fn set_tags(&mut self, tags: Vec<Tag>) {
@@ -127,6 +134,8 @@ impl Bar {
         } else if self.tags_btns.is_between(x) {
             ss.wm_info_provider
                 .click_on_tag(conn, &self.output, seat, None, button);
+        } else if let Some(tray_id) = self.tray_btns.click(x) {
+            tray::handle_click(ss, tray_id, button);
         } else if let Some((name, instance)) = self.blocks_btns.click(x) {
             if let Some(cmd) = &mut ss.status_cmd {
                 cmd.send_click_event(&i3bar_protocol::Event {
@@ -319,6 +328,26 @@ impl Bar {
             }
         }
 
+        // Display tray icons
+        let tray_width = if ss.tray_cache.is_empty() {
+            0.0
+        } else {
+            let slot = (height_f - 4.0).max(16.0);
+            let n = ss.tray_cache.len() as f64;
+            n * slot + (n - 1.0) * 4.0
+        };
+        let blocks_end = width_f - tray_width;
+        if tray_width > 0.0 {
+            tray::render(
+                &cairo_ctx,
+                ss,
+                &mut self.tray_btns,
+                blocks_end,
+                height_f,
+                scale_f,
+            );
+        }
+
         // Display the blocks
         render_blocks(
             &cairo_ctx,
@@ -326,7 +355,7 @@ impl Bar {
             ss.blocks_cache.get_computed(),
             &mut self.blocks_btns,
             offset_left,
-            width_f,
+            blocks_end,
             height_f,
         );
 

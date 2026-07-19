@@ -104,6 +104,8 @@ impl State {
                 status_cmd,
                 blocks_cache: BlocksCache::default(),
                 wm_info_provider,
+                tray: None,
+                tray_cache: std::collections::HashMap::new(),
             },
 
             cursor_theme,
@@ -141,6 +143,14 @@ impl State {
         for bar in &mut self.bars {
             bar.frame(conn, &mut self.shared_state);
         }
+    }
+
+    pub fn max_bar_scale(&self) -> f64 {
+        self.bars
+            .iter()
+            .map(|b| b.scale_f())
+            .fold(0.0f64, f64::max)
+            .max(1.0)
     }
 
     pub fn status_cmd_fd(&self) -> Option<RawFd> {
